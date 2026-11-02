@@ -1,78 +1,41 @@
 /**
- * Vercel serverless entry for the clinic API.
+ * Vercel serverless entry point.
  *
- * Vercel does not run a listening socket: it hands each request to an exported
- * handler. `backend/src/index.ts` calls `app.listen()`, which only works for a
- * long-running Node process, so this module wires the same Express app into a
- * request handler instead.
- *
- * A warm instance is reused across requests, so the Mongo connection and the
- * Express app are created once and then cached on the module instance.
+ * The full server (backend/src/index.ts) keeps listening on a port for local
+ * development. In production Vercel calls this handler per-request, so we:
+ *   1. create the Express app once per cold start,
+ *   2. connect to MongoDB once per cold start (the promise is cached),
+ *   3. forward the request into Express.
  */
-
-import type { IncomingMessage, ServerResponse } from 'node:http';
-import type { Express } from 'express';
+import type { RequestHandler } from 'express';
 import { createApp } from '../backend/src/app';
 import { connectDatabase } from '../backend/src/config/db';
-import { env } from '../backend/src/config/env';
 import { ensureSeedData } from '../backend/src/services/bootstrap';
 
-let app: Express | null = null;
-let booting: Promise<Express> | null = null;
+const app = createApp();
 
-function boot(): Promise<Express> {
-  if (app) return Promise.resolve(app);
+let readyPromise: Promise<void> | null = null;
 
-  if (!booting) {
-    booting = (async () => {
-      // `assertEnv()` is deliberately not used here: it calls process.exit(),
-      // which would kill the invocation instead of returning a useful response.
-      if (!env.mongoUri) {
-        throw new Error('MONGODB_URI is not configured for this deployment.');
-      }
-
+function prepare(): Promise<void> {
+  if (!readyPromise) {
+    readyPromise = (async () => {
       await connectDatabase();
-
-      try {
-        await ensureSeedData();
-      } catch (error) {
-        // Seeding is a convenience, not a prerequisite for serving requests.
-        console.error('[seed] Bootstrap did not complete:', error);
-      }
-
-      app = createApp();
-      return app;
-    })().catch((error: unknown) => {
-      // Allow the next invocation to retry a cold start.
-      booting = null;
-      throw error;
-    });
+      await ensureSeedData();
+    })();
   }
-
-  return booting;
+  return readyPromise;
 }
 
-export default async function handler(
-  req: IncomingMessage,
-  res: ServerResponse,
-): Promise<void> {
+const handler: RequestHandler = async (req, res) => {
   try {
-    const instance = await boot();
-    instance(req, res);
+    await prepare();
   } catch (error) {
-    console.error('[api] Startup failed:', error);
-
-    if (res.headersSent) {
-      res.end();
-      return;
-    }
-
-    res.statusCode = 503;
-    res.setHeader('Content-Type', 'application/json');
-    res.end(
-      JSON.stringify({
-        message: 'The API is starting up. Please retry in a few seconds.',
-      }),
-    );
+    console.error('[api] Failed to prepare serverless instance:', error);
+    res.status(503).json({ error: 'API is starting up, try again in a moment.' });
+    return;
   }
-}
+
+  app(req, res);
+};
+
+export default handler;
