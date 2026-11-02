@@ -4,6 +4,7 @@ import express, { type Express } from 'express';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import { env, isCloudinaryConfigured } from './config/env';
+import { waitReady } from './serverless';
 import { errorHandler, notFoundHandler } from './middleware/error';
 import { adminRouter } from './routes/admin';
 import { authRouter } from './routes/auth.routes';
@@ -26,6 +27,9 @@ export function createApp(): Express {
   app.use(express.json({ limit: '1mb' }));
   app.use(express.urlencoded({ extended: true }));
   app.use(cookieParser());
+
+  // Serverless cold start: make sure MongoDB is ready before routing.
+  app.use(waitReady);
 
   if (!env.isProduction) app.use(morgan('dev'));
 

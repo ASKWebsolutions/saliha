@@ -1,21 +1,23 @@
 {
-  "installCommand": "npm install && npm --prefix frontend install",
-  "buildCommand": "npm --prefix frontend run build",
-  "outputDirectory": "frontend/dist",
-  "functions": {
-    "api/index.ts": {
-      "memory": 1024,
-      "maxDuration": 60
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "services": {
+    "frontend": {
+      "root": "frontend/"
+    },
+    "backend": {
+      "root": "backend/",
+      "framework": "express",
+      "entrypoint": "src/api.ts"
     }
   },
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "/api"
+      "destination": { "service": "backend" }
     },
     {
       "source": "/((?!api/).*)",
-      "destination": "/index.html"
+      "destination": { "service": "frontend" }
     }
   ]
 }
