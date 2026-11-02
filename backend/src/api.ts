@@ -9,4 +9,7 @@ import { createApp } from './app';
  */
 const app = createApp();
 
-export default app;
+// Vercel's Express runtime inspects the module's raw CommonJS export. With
+// TypeScript's default `export default app` lands on `exports.default`, which
+// fails that check ("Invalid export"), so export the app object itself.
+export = app;
